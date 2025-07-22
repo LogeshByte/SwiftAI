@@ -1,5 +1,5 @@
 import React from "react";
-import { useUser } from "@clerk/clerk-react";
+import { Protect, useClerk, useUser } from "@clerk/clerk-react";
 import { assets } from "../assets/assets";
 import {
   Eraser,
@@ -10,6 +10,7 @@ import {
   SquarePen,
   UsersRound,
   Image,
+  LogOut,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
@@ -26,6 +27,7 @@ const navItems = [
 
 const Sidebar = ({ sidebar, setSideBar }) => {
   const { user, isLoaded } = useUser();
+  const {signOut,openUserProfile} = useClerk();
   return (
     <div
       className={`w-60 bg-white border-r border-gray-200 flex flex-col justify-between items-center max-sm:absolute top-14 bottom-0 ${
@@ -42,7 +44,7 @@ const Sidebar = ({ sidebar, setSideBar }) => {
             />
             <h1 className="mt-1 text-center">{user.fullName}</h1>
 
-            <div>
+            <div className="px-6 mt-5 text-sm text-gray-600 font-medium">
               {navItems.map(({ to, label, Icon }) => (
                 <NavLink
                   key={to}
@@ -70,6 +72,19 @@ const Sidebar = ({ sidebar, setSideBar }) => {
             </div>
           </>
         )}
+      </div>
+      <div className="w-full border-t border-gray-200 pt-4 px-7 flex justify-between items-center">
+          <div className="flex items-center gap-2 cursor-pointer" onClick={openUserProfile}>
+            <img src={user.imageUrl} className="w-8 rounded-full" />
+            <div>
+              <h1 className="text-sm font-medium">{user.fullName}</h1>
+              <p className="text-xs text-gray-500">
+                <Protect plan='premium' fallback="Free">Premium</Protect>
+                Plan
+              </p>
+            </div>
+          </div>
+          <LogOut onClick={signOut} className="w-4.5 text-gray-400 hover:text-gray-700 transition cursor-pointer"/>
       </div>
     </div>
   );
