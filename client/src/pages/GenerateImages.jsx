@@ -13,7 +13,7 @@ const GenerateImages = () => {
     "3D style",
     "Portrait style",
   ];
-
+  
   const [selectedStyle, setSelectedStyle] = useState("Realistic");
   const [input, setInput] = useState("");
   const [publish, setPublish] = useState(false);
