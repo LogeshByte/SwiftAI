@@ -1,6 +1,6 @@
 import express from 'express';
-import { auth } from '../middlewares/auth';
-import { getUserCreations , getPublishedCreations, toggleLikeCreations} from '../controllers/userController';
+import {auth} from '../middlewares/auth.js';
+import { getUserCreations , getPublishedCreations, toggleLikeCreations} from '../controllers/userController.js';
 
 const userRouter = express.Router();
 
