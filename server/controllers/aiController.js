@@ -1,241 +1,365 @@
-
-import OpenAI from "openai";
+import axios from "axios";
 import sql from "../configs/db.js";
 import { clerkClient } from "@clerk/express";
-import axios from "axios";
-import {v2 as cloudinary} from 'cloudinary';
-import fs from 'fs';
-import * as pdf from 'pdf-parse';
+import { v2 as cloudinary } from "cloudinary";
+import fs from "fs";
+import * as pdf from "pdf-parse";
 
-const AI = new OpenAI({
-    apiKey: process.env.GEMINI_API_KEY,
-    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/"
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-export const generateArticle = async (req,res)=>{
-    try {
-        const {userId} = req.auth();
-        const {prompt,length} = req.body;
-        const plan = req.plan;
-        const free_usage = req.free_usage;
+// Helper function to call Gemini API
+async function callGeminiAPI(prompt, maxTokens = 1000) {
+  try {
+    const response = await axios.post(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      {
+        contents: [
+          {
+            parts: [{ text: prompt }],
+          },
+        ],
+        generationConfig: {
+          maxOutputTokens: maxTokens,
+          temperature: 0.7,
+        },
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    );
 
-        if(plan !== 'premium' && free_usage >= 10) {
-            return res.json(
-                {success:false,message:"Free usage limit exceeded. Please upgrade to premium plan."}
-            );
-        }
-// code from gemini docs
-    const response = await AI.chat.completions.create({
-    model: "gemini-1.5-flash-latest",
-    messages: [{ role: "user", content: prompt,},],
-    temperature: 0.7,
-    max_tokens:length,
-});
-
-const content = response.choices[0].message.content;
-
-await sql `INSERT INTO creation (user_id,prompt,content,type) VALUES (${userId},${prompt},${content},'article')`;
-
-if(plan !== 'premium') {
-    await clerkClient.users.updateUserMetadata(userId,{
-        privateMetadata:{free_usage:free_usage + 1}
-    })
-}
-
-res.json({success:true,content});
-
-}
-catch (error) {
-        console.log(error.message);
-        res.json({success:false,message:error.message});
+    if (response.data.candidates?.[0]?.content?.parts?.[0]?.text) {
+      return response.data.candidates[0].content.parts[0].text;
+    } else {
+      throw new Error("No content generated from Gemini API");
     }
-}
-
-export const generateBlogTitle = async (req,res)=>{
-    try {
-        const {userId} = req.auth();
-        const {prompt} = req.body;
-        const plan = req.plan;
-        const free_usage = req.free_usage;
-
-        if(plan !== 'premium' && free_usage >= 10) {
-            return res.json(
-                {success:false,message:"Free usage limit exceeded. Please upgrade to premium plan."}
-            );
-        }
-// code from gemini docs
-    const response = await AI.chat.completions.create({
-    model: "gemini-2.0-flash",
-    messages: [{ role: "user", content: prompt,},],
-    temperature: 0.7,
-    max_tokens:100,
-});
-
-const content = response.choices[0].message.content;
-
-await sql `INSERT INTO creation (user_id,prompt,content,type) VALUES (${userId},${prompt},${content},'blog-title')`;
-
-if(plan !== 'premium') {
-    await clerkClient.users.updateUserMetadata(userId,{
-        privateMetadata:{free_usage:free_usage + 1}
-    })
-}
-
-res.json({success:true,content});
-
-}
-catch (error) {
-        console.log(error.message);
-        res.json({success:false,message:error.message});
+  } catch (error) {
+    if (error.response?.data?.error?.code === 429) {
+      throw new Error(
+        "API quota exceeded. Please wait and try again or upgrade your plan."
+      );
     }
+    throw new Error(error.response?.data?.error?.message || error.message);
+  }
 }
 
-export const generateImage = async (req,res)=>{
-    try {
-        const {userId} = req.auth();
-        const {prompt,publish} = req.body;
-        const plan = req.plan;
+// 1. Generate Article
+export const generateArticle = async (req, res) => {
+  try {
+    const { userId } = req.auth();
+    const { prompt, length = 800 } = req.body;
+    const plan = req.plan;
+    const free_usage = req.free_usage;
 
-        if(plan !== 'premium') {
-            return res.json(
-                {success:false,message:"This feature is only available for premium subscription"}
-            );
-        }
-// code from gemini docs
-const formData = new FormData();
-formData.append('prompt',prompt);
-const {data}=await axios.post("https://clipdrop-api.co/text-to-image/v1",formData,{
-    headers:{'x-api-key':process.env.CLIPDROP_API_KEY,},
-    responseType:"arraybuffer",
-}); 
+    if (!prompt) {
+      return res.json({ success: false, message: "Article topic is required" });
+    }
 
-const base64Image = `data:image/png;base64,${Buffer.from(data,'binary').toString('base64')}`;
+    if (plan !== "premium" && free_usage >= 10) {
+      return res.json({
+        success: false,
+        message: "Free usage limit exceeded. Please upgrade to premium plan.",
+      });
+    }
+
+    console.log("🤖 Generating article...");
+
+    const fullPrompt = `Write a comprehensive, well-structured article about: "${prompt}". 
     
-const {secure_url} = await cloudinary.uploader.upload(base64Image);
+    Requirements:
+    - Approximately ${length} words
+    - Include engaging headings and subheadings
+    - Use proper paragraphs and formatting
+    - Make it informative and engaging
+    - Include relevant examples where appropriate`;
 
-await sql `INSERT INTO creation (user_id,prompt,content,type,publish) VALUES (${userId},${prompt},${secure_url},'image',${publish ?? false})`;
+    const content = await callGeminiAPI(fullPrompt, length);
 
+    await sql`INSERT INTO creation (user_id, prompt, content, type) VALUES (${userId}, ${prompt}, ${content}, 'article')`;
 
-
-res.json({success:true,content:secure_url});
-
-}
-catch (error) {
-        console.log(error.message);
-        res.json({success:false,message:error.message});
+    if (plan !== "premium") {
+      await clerkClient.users.updateUserMetadata(userId, {
+        privateMetadata: { free_usage: free_usage + 1 },
+      });
     }
-}
 
-export const removeImageBackground = async (req,res)=>{
-    try {
-        const {userId} = req.auth();
-        const {image} = req.file;
-        const plan = req.plan;
+    res.json({ success: true, content });
+  } catch (error) {
+    console.error("❌ Article generation error:", error.message);
+    res.json({ success: false, message: error.message });
+  }
+};
 
-        if(plan !== 'premium') {
-            return res.json(
-                {success:false,message:"This feature is only available for premium subscription"}
-            );
-        }
-// code from gemini docs
+// 2. Generate Blog Titles
+export const generateBlogTitle = async (req, res) => {
+  try {
+    const { userId } = req.auth();
+    const { prompt } = req.body;
+    const plan = req.plan;
+    const free_usage = req.free_usage;
 
-    
-const {secure_url} = await cloudinary.uploader.upload(image.path,{
-    transformation: [{
-        effect:'background_removal',
-        background_removal:'remove_the_background'
-    }]
-});
-
-await sql `INSERT INTO creation (user_id,prompt,content,type) VALUES (${userId},'Remove background from image',${secure_url},'image')`;
-
-
-
-res.json({success:true,content:secure_url});
-
-}
-catch (error) {
-        console.log(error.message);
-        res.json({success:false,message:error.message});
+    if (!prompt) {
+      return res.json({ success: false, message: "Topic is required" });
     }
-}
 
-
-export const removeImageObject = async (req,res)=>{
-    try {
-        const {userId} = req.auth();
-        const {object} = req.body;
-        const {image} = req.file;
-        const plan = req.plan;
-
-        if(plan !== 'premium') {
-            return res.json(
-                {success:false,message:"This feature is only available for premium subscription"}
-            );
-        }
-// code from gemini docs
-
-    
-const {public_id} = await cloudinary.uploader.upload(image.path);
-const imagrUrl = cloudinary.url(public_id,{
-    transformation: [{effect:`gen_remove:${object}`}],
-    resource_type:'image',
-});
-
-await sql `INSERT INTO creation (user_id,prompt,content,type) VALUES (${userId},${`Remove ${object} from image ` },${imagrUrl},'image')`;
-
-
-
-res.json({success:true,content:imageUrl});
-
-}
-catch (error) {
-        console.log(error.message);
-        res.json({success:false,message:error.message});
+    if (plan !== "premium" && free_usage >= 10) {
+      return res.json({
+        success: false,
+        message: "Free usage limit exceeded. Please upgrade to premium plan.",
+      });
     }
-}
 
-export const resumeReview = async (req,res)=>{
-    try {
-        const {userId} = req.auth();
-        const resume = req.file;
-        const plan = req.plan;
+    console.log("📝 Generating blog titles...");
 
-        if(plan !== 'premium') {
-            return res.json(
-                {success:false,message:"This feature is only available for premium subscription"}
-            );
-        }
-// code from gemini docs
+    const fullPrompt = `Generate 10 creative, engaging, and SEO-friendly blog titles for the topic: "${prompt}".
 
-    
-if(resume.size>5*1024*1024) {
-    return res.json({success:false,message:"File size should be less than 5MB"});
-}
+    Requirements:
+    - Make them catchy and click-worthy
+    - Include power words and emotional triggers
+    - Vary the length and style
+    - Make them search engine optimized
+    - Format as a numbered list
 
-const dataBuffer = fs.readFileSync(resume.path);
-const pdfData=await pdf(dataBuffer);
+    Topic: ${prompt}`;
 
-const prompt = `Review the following resume and provide constructive feedback on its strengths,weaknesses , and areas for improvement. Resume Content:\n\n ${pdfData.text}`;
+    const content = await callGeminiAPI(fullPrompt, 300);
 
-const response = await AI.chat.completions.create({
-    model: "gemini-2.0-flash",
-    messages: [{ role: "user", content: prompt,},],
-    temperature: 0.7,
-    max_tokens:1000,
-});
+    await sql`INSERT INTO creation (user_id, prompt, content, type) VALUES (${userId}, ${prompt}, ${content}, 'blog-title')`;
 
-const content = response.choices[0].message.content;
-
-await sql `INSERT INTO creation (user_id,prompt,content,type) VALUES (${userId},Review the uploaded resume'',${content},'resume-review')`;
-
-
-
-res.json({success:true,content});
-
-}
-catch (error) {
-        console.log(error.message);
-        res.json({success:false,message:error.message});
+    if (plan !== "premium") {
+      await clerkClient.users.updateUserMetadata(userId, {
+        privateMetadata: { free_usage: free_usage + 1 },
+      });
     }
-}
+
+    res.json({ success: true, content });
+  } catch (error) {
+    console.error("❌ Blog title generation error:", error.message);
+    res.json({ success: false, message: error.message });
+  }
+};
+
+// 3. Generate Images
+export const generateImage = async (req, res) => {
+  try {
+    const { userId } = req.auth();
+    const { prompt, publish = false } = req.body;
+    const plan = req.plan;
+
+    if (plan !== "premium") {
+      return res.json({
+        success: false,
+        message: "Image generation is only available for premium subscribers",
+      });
+    }
+
+    if (!prompt) {
+      return res.json({ success: false, message: "Image prompt is required" });
+    }
+
+    console.log("🎨 Generating image...");
+
+    const formData = new FormData();
+    formData.append("prompt", prompt);
+
+    const { data } = await axios.post(
+      "https://clipdrop-api.co/text-to-image/v1",
+      formData,
+      {
+        headers: { "x-api-key": process.env.CLIPDROP_API_KEY },
+        responseType: "arraybuffer",
+      }
+    );
+
+    const base64Image = `data:image/png;base64,${Buffer.from(
+      data,
+      "binary"
+    ).toString("base64")}`;
+    const { secure_url } = await cloudinary.uploader.upload(base64Image);
+
+    await sql`INSERT INTO creation (user_id, prompt, content, type, publish) VALUES (${userId}, ${prompt}, ${secure_url}, 'image', ${publish})`;
+
+    res.json({ success: true, content: secure_url });
+  } catch (error) {
+    console.error("❌ Image generation error:", error.message);
+    res.json({
+      success: false,
+      message: `Failed to generate image: ${error.message}`,
+    });
+  }
+};
+
+// 4. Remove Image Background
+export const removeImageBackground = async (req, res) => {
+  try {
+    const { userId } = req.auth();
+    const image = req.file;
+    const plan = req.plan;
+
+    if (plan !== "premium") {
+      return res.json({
+        success: false,
+        message: "Background removal is only available for premium subscribers",
+      });
+    }
+
+    if (!image) {
+      return res.json({ success: false, message: "Image file is required" });
+    }
+
+    console.log("🖼️ Removing background...");
+
+    const { secure_url } = await cloudinary.uploader.upload(image.path, {
+      transformation: [
+        {
+          effect: "background_removal",
+          background_removal: "remove_the_background",
+        },
+      ],
+    });
+
+    await sql`INSERT INTO creation (user_id, prompt, content, type) VALUES (${userId}, 'Remove background from image', ${secure_url}, 'image')`;
+
+    res.json({ success: true, content: secure_url });
+  } catch (error) {
+    console.error("❌ Background removal error:", error.message);
+    res.json({
+      success: false,
+      message: `Failed to remove background: ${error.message}`,
+    });
+  }
+};
+
+// 5. Remove Object from Image
+export const removeImageObject = async (req, res) => {
+  try {
+    const { userId } = req.auth();
+    const { object } = req.body;
+    const image = req.file;
+    const plan = req.plan;
+
+    if (plan !== "premium") {
+      return res.json({
+        success: false,
+        message: "Object removal is only available for premium subscribers",
+      });
+    }
+
+    if (!image || !object) {
+      return res.json({
+        success: false,
+        message: "Image file and object description are required",
+      });
+    }
+
+    console.log(`🎯 Removing ${object} from image...`);
+
+    const { public_id } = await cloudinary.uploader.upload(image.path);
+    const imageUrl = cloudinary.url(public_id, {
+      transformation: [{ effect: `gen_remove:${object}` }],
+      resource_type: "image",
+    });
+
+    await sql`INSERT INTO creation (user_id, prompt, content, type) VALUES (${userId}, ${`Remove ${object} from image`}, ${imageUrl}, 'image')`;
+
+    res.json({ success: true, content: imageUrl });
+  } catch (error) {
+    console.error("❌ Object removal error:", error.message);
+    res.json({
+      success: false,
+      message: `Failed to remove object: ${error.message}`,
+    });
+  }
+};
+
+// 6. Get User Creations
+export const getUserCreations = async (req, res) => {
+  try {
+    const { userId } = req.auth();
+
+    console.log("📊 Fetching user creations...");
+
+    const creations = await sql`
+      SELECT id, prompt, content, type, publish, created_at, updated_at 
+      FROM creation 
+      WHERE user_id = ${userId} 
+      ORDER BY created_at DESC 
+      LIMIT 20
+    `;
+
+    res.json({ success: true, creations });
+  } catch (error) {
+    console.error("❌ Get creations error:", error.message);
+    res.json({
+      success: false,
+      message: `Failed to fetch creations: ${error.message}`,
+    });
+  }
+};
+
+// 7. Review Resume
+export const resumeReview = async (req, res) => {
+  try {
+    const { userId } = req.auth();
+    const resume = req.file;
+    const plan = req.plan;
+
+    if (plan !== "premium") {
+      return res.json({
+        success: false,
+        message: "Resume review is only available for premium subscribers",
+      });
+    }
+
+    if (!resume) {
+      return res.json({ success: false, message: "Resume file is required" });
+    }
+
+    if (resume.size > 5 * 1024 * 1024) {
+      return res.json({
+        success: false,
+        message: "File size should be less than 5MB",
+      });
+    }
+
+    console.log("📄 Reviewing resume...");
+
+    const dataBuffer = fs.readFileSync(resume.path);
+    const pdfData = await pdf(dataBuffer);
+
+    const prompt = `As an expert HR professional and career coach, provide a comprehensive review of this resume:
+
+    RESUME CONTENT:
+    ${pdfData.text}
+
+    Please provide:
+    1. **Overall Assessment** - Rate the resume out of 10 and give a brief summary
+    2. **Strengths** - What works well in this resume
+    3. **Areas for Improvement** - Specific issues that need attention
+    4. **Content Suggestions** - What to add, remove, or modify
+    5. **Formatting & Structure** - Layout and organization feedback
+    6. **ATS Optimization** - How to make it more ATS-friendly
+    7. **Action Items** - 5 specific steps to improve the resume
+
+    Make your feedback constructive, specific, and actionable.`;
+
+    const content = await callGeminiAPI(prompt, 2000);
+
+    await sql`INSERT INTO creation (user_id, prompt, content, type) VALUES (${userId}, 'Resume review and feedback', ${content}, 'resume-review')`;
+
+    res.json({ success: true, content });
+  } catch (error) {
+    console.error("❌ Resume review error:", error.message);
+    res.json({
+      success: false,
+      message: `Failed to review resume: ${error.message}`,
+    });
+  }
+};

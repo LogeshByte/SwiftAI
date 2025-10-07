@@ -1,59 +1,213 @@
-import { Eraser, Sparkles } from 'lucide-react';
-import React from 'react'
-import { useState } from 'react';
+import { Square, Upload, Download, Image as ImageIcon } from "lucide-react";
+import React, { useState, useRef } from "react";
+import axios from "axios";
+import { useAuth } from "@clerk/clerk-react";
+import toast from "react-hot-toast";
+
+axios.defaults.baseURL = import.meta.env.VITE_BASE_URL;
 
 const RemoveBackground = () => {
+  const [originalImage, setOriginalImage] = useState(null);
+  const [processedImage, setProcessedImage] = useState("");
+  const [loading, setLoading] = useState(false);
+  const fileInputRef = useRef(null);
 
-  
-    const [input, setInput] = useState("");
-  
-    const onSubmitHandler = async (e) => {
-      e.preventDefault(); // Prevent reload the website
+  const { getToken } = useAuth();
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error("File size should be less than 10MB");
+        return;
+      }
+
+      if (!file.type.startsWith("image/")) {
+        toast.error("Please select an image file");
+        return;
+      }
+
+      setOriginalImage(file);
+      setProcessedImage("");
     }
-  
+  };
+
+  const removeBackground = async () => {
+    if (!originalImage) {
+      toast.error("Please select an image first");
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const formData = new FormData();
+      formData.append("image", originalImage);
+
+      const { data } = await axios.post(
+        "/api/ai/remove-image-background",
+        formData,
+        {
+          headers: {
+            Authorization: `Bearer ${await getToken()}`,
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
+
+      if (data.success) {
+        setProcessedImage(data.content);
+        toast.success("🎉 Background removed successfully!");
+      } else {
+        toast.error(data.message || "Failed to remove background");
+      }
+    } catch (error) {
+      console.error("Error:", error);
+      toast.error(
+        error.response?.data?.message ||
+          error.message ||
+          "Failed to remove background"
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const downloadImage = async () => {
+    try {
+      const response = await fetch(processedImage);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `background-removed-${Date.now()}.png`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast.success("Image downloaded!");
+    } catch (error) {
+      toast.error("Failed to download image");
+    }
+  };
 
   return (
-    <div>
-      <div className="h-full overflow-y-scroll p-6 flex items-start flex-wrap gap-4 text-slate-700">
-        {/* Left col */}
-        <form onSubmit={onSubmitHandler} className="w-full max-w-lg p-4 bg-white rounded-lg border border-gray-200">
-          <div className="flex items-center gap-3">
-            <Sparkles className="w-6 text-[#FF4938]" />
-            <h1 className="text-xl font-semibold">Background Removal</h1>
-          </div>
-          <p className="mt-6 text-sm font-medium">Upload Image</p>
-
-          <input
-            onChange={(e) => setInput(e.target.files[0])}
-            accept='image/*'
-            type="file"
-            className="w-full p-2 px-3 mt-2 outline-none text-sm rounded-md border border-gray-300 text-gray-600"
-            required
-          />
-
-          <p className='text-xs text-gray-500 font-light mt-1'>Supports JPG,PNG, and other image format</p>
-          <button className='w-full flex justify-center items-center gap-2 bg-gradient-to-r from-[#F6AB41] to-[#FF4938] text-white px-4 py-2 mt-6 text-sm rounded-lg cursor-pointer'>
-            <Eraser className="w-4 " />
-            Remove Background
-          </button>
-        </form>
-        {/* Right col */}
-        <div className='w-full max-w-lg p-4 bg-white rounded-lg flex flex-col border border-gray-200 min-h-96'>       
-          <div className='flex items-center gap-3'>
-            <Eraser className="w-5 h-5 text-[#FF4938]"/>
-            <h1 className="text-xl font-semibold">Processed Image</h1>
-           </div> 
-
-           <div className='flex-1 flex justify-center items-center '>
-            <div className="text-sm flex flex-col items-center gap-5 text-gray-400">
-              <Eraser className="w-9 h-9"/>
-              <p>Upload the image and click "remove background" to get started</p>
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-7xl mx-auto">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+          <div className="flex items-center gap-3 mb-6">
+            <div className="p-2 bg-orange-100 rounded-lg">
+              <Square className="w-6 h-6 text-orange-600" />
             </div>
-           </div>
+            <h1 className="text-2xl font-bold text-gray-800">
+              Remove Background
+            </h1>
+          </div>
+
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+            <p className="text-sm text-yellow-800">
+              <strong>Premium Feature:</strong> Background removal is available
+              for premium subscribers only.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Upload Section */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-gray-800">
+                Original Image
+              </h3>
+
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-orange-400 hover:bg-orange-50 transition-colors"
+              >
+                {originalImage ? (
+                  <img
+                    src={URL.createObjectURL(originalImage)}
+                    alt="Original"
+                    className="max-w-full max-h-64 mx-auto rounded-lg shadow-sm"
+                  />
+                ) : (
+                  <div className="text-gray-400">
+                    <Upload className="w-12 h-12 mx-auto mb-4" />
+                    <p className="text-lg font-medium mb-2">Upload an image</p>
+                    <p className="text-sm">Click to select or drag and drop</p>
+                    <p className="text-xs mt-2">
+                      Supports: JPG, PNG, WebP (Max 10MB)
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+
+              <button
+                onClick={removeBackground}
+                disabled={!originalImage || loading}
+                className="w-full bg-gradient-to-r from-orange-600 to-orange-700 text-white py-3 px-6 rounded-lg font-medium hover:from-orange-700 hover:to-orange-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+              >
+                {loading ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <Square className="w-5 h-5" />
+                    Remove Background
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Result Section */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-gray-800">
+                Processed Image
+              </h3>
+
+              <div className="border border-gray-200 rounded-lg p-8 min-h-[300px] flex items-center justify-center bg-gray-50">
+                {processedImage ? (
+                  <div className="w-full text-center">
+                    <img
+                      src={processedImage}
+                      alt="Processed"
+                      className="max-w-full max-h-64 mx-auto rounded-lg shadow-sm"
+                      style={{ backgroundColor: "transparent" }}
+                    />
+                    <button
+                      onClick={downloadImage}
+                      className="mt-4 bg-green-600 text-white py-2 px-6 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 mx-auto"
+                    >
+                      <Download className="w-4 h-4" />
+                      Download
+                    </button>
+                  </div>
+                ) : (
+                  <div className="text-center text-gray-400">
+                    <ImageIcon className="w-12 h-12 mx-auto mb-4" />
+                    <p className="text-lg font-medium mb-2">
+                      Processed image will appear here
+                    </p>
+                    <p className="text-sm">
+                      Upload an image and click "Remove Background"
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
-  )
-}
+  );
+};
 
-export default RemoveBackground
+export default RemoveBackground;

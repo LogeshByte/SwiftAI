@@ -1,25 +1,26 @@
 import { clerkClient } from "@clerk/express";
 
-//Middleware to userId and hasPremiumPlan
+// Middleware to get userId and plan information
+export const auth = async (req, res, next) => {
+  try {
+    const { userId, has } = req.auth();
 
-export const auth = async (req,res,next)=>{
-    try {
-        const {userId,has} = await req.auth();
-        const hasPremiumPlan = await has({plan:'premium'});
-        const user = await clerkClient.users.getUser(userId);
-
-        if(!hasPremiumPlan && user.privateMetadata.free_usage) {
-            req.free_usage = user.privateMetadata.free_usage;
-        }else{
-            await clerkClient.users.updateUserMetadata(userId,{
-                privateMetadata:{free_usage:0}
-            })
-            req.free_usage = 0;
-        }
-
-        req.plan=hasPremiumPlan ? 'premium' : 'free';
-        next();
-    } catch (error) {
-        res.json({success:false,message:error.message});
+    if (!userId) {
+      return res.json({ success: false, message: "User not authenticated" });
     }
-}
+
+    const hasPremiumPlan = await has({ plan: "premium" });
+    const user = await clerkClient.users.getUser(userId);
+
+    // Get current usage from user metadata
+    const currentUsage = user.privateMetadata?.free_usage || 0;
+
+    req.plan = hasPremiumPlan ? "premium" : "free";
+    req.free_usage = currentUsage;
+
+    next();
+  } catch (error) {
+    console.error("Auth middleware error:", error);
+    res.json({ success: false, message: "Authentication failed" });
+  }
+};
