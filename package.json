@@ -1,0 +1,23 @@
+{
+    "name": "swift-ai-platform",
+    "version": "1.0.0",
+    "description": "AI SaaS Platform with React frontend and Node.js backend",
+    "scripts": {
+        "start": "npm start --prefix server",
+        "dev": "npm run server --prefix server",
+        "server": "npm start --prefix server",
+        "client": "npm start --prefix client",
+        "install-server": "npm install --prefix server",
+        "install-client": "npm install --prefix client",
+        "install-all": "npm run install-server && npm run install-client"
+    },
+    "keywords": [
+        "ai",
+        "saas",
+        "react",
+        "nodejs",
+        "express"
+    ],
+    "author": "",
+    "license": "ISC"
+}

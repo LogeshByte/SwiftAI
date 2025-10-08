@@ -2,21 +2,14 @@ import express from "express";
 import cors from "cors";
 import "dotenv/config";
 import axios from "axios";
-import multer from "multer";
-import fs from "fs";
-import { createRequire } from "module";
-
-// Create require function for CommonJS modules
-const require = createRequire(import.meta.url);
-const pdfParse = require("pdf-parse");
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-// In-memory storage for creations (in production, use a real database)
-let creationsStorage = [
+// Dummy data for demo (in production, use a real database)
+const getDummyCreations = () => [
   {
     id: 1,
     user_id: "current_user",
@@ -26,7 +19,7 @@ let creationsStorage = [
     type: "article",
     publish: false,
     likes: [],
-    created_at: new Date(Date.now() - 1000 * 60 * 5).toISOString(), // 5 minutes ago
+    created_at: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
     updated_at: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
   },
   {
@@ -38,13 +31,10 @@ let creationsStorage = [
     type: "blog-title",
     publish: false,
     likes: [],
-    created_at: new Date(Date.now() - 1000 * 60 * 15).toISOString(), // 15 minutes ago
+    created_at: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
     updated_at: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
   },
 ];
-
-// Configure multer for file uploads
-const upload = multer({ dest: "uploads/" });
 
 // Health check
 app.get("/", (req, res) => {
@@ -55,43 +45,9 @@ app.get("/api/health", (req, res) => {
   res.json({ success: true, message: "Server is healthy!" });
 });
 
-// Test endpoint to add a creation without AI
-app.post("/api/debug/add-creation", (req, res) => {
-  const { prompt, userId } = req.body;
-
-  const creation = {
-    id: Date.now(),
-    user_id: userId || "test_user",
-    prompt: prompt || "Test creation",
-    content: "This is a test creation content",
-    type: "test",
-    publish: false,
-    likes: [],
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-
-  creationsStorage.unshift(creation);
-  console.log(
-    `🧪 Test creation added. Storage now has ${creationsStorage.length} items`
-  );
-
-  res.json({ success: true, creation, storageCount: creationsStorage.length });
-});
-
-// Debug endpoint to check storage
-app.get("/api/debug/storage", (req, res) => {
-  res.json({
-    success: true,
-    storageCount: creationsStorage.length,
-    creations: creationsStorage.map((c) => ({
-      id: c.id,
-      user_id: c.user_id,
-      prompt: c.prompt.substring(0, 50),
-      type: c.type,
-      created_at: c.created_at,
-    })),
-  });
+// Test endpoint
+app.get("/api/test", (req, res) => {
+  res.json({ success: true, message: "API is working!" });
 });
 
 // Helper function for Gemini API
@@ -145,27 +101,7 @@ app.post("/api/ai/generate-article", async (req, res) => {
 
     const content = await callGeminiAPI(fullPrompt, length);
 
-    // Save to in-memory storage (in production, save to database)
-    const creation = {
-      id: Date.now(),
-      user_id: userId || "current_user", // Use provided userId or fallback
-      prompt,
-      content,
-      type: "article",
-      publish: false,
-      likes: [],
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    creationsStorage.unshift(creation); // Add to beginning of array
-
-    console.log("✅ Article generated and saved successfully");
-    console.log(`📦 Storage now has ${creationsStorage.length} items`);
-    console.log("🔍 Latest creation:", {
-      id: creation.id,
-      prompt: creation.prompt,
-      user_id: creation.user_id,
-    });
+    console.log("✅ Article generated successfully");
     res.json({ success: true, content });
   } catch (error) {
     console.error("❌ Article generation error:", error.message);
@@ -198,22 +134,7 @@ app.post("/api/ai/generate-blog-title", async (req, res) => {
 
     const content = await callGeminiAPI(fullPrompt, 500);
 
-    // Save to in-memory storage
-    const creation = {
-      id: Date.now(),
-      user_id: userId || "current_user",
-      prompt,
-      content,
-      type: "blog-title",
-      publish: false,
-      likes: [],
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    creationsStorage.unshift(creation);
-
-    console.log("✅ Blog titles generated and saved successfully");
-    console.log(`📦 Storage now has ${creationsStorage.length} items`);
+    console.log("✅ Blog titles generated successfully");
     res.json({ success: true, content });
   } catch (error) {
     console.error("❌ Blog title generation error:", error.message);
@@ -279,212 +200,77 @@ app.post("/api/ai/generate-image", async (req, res) => {
   }
 });
 
-// Remove Image Background Endpoint
-app.post(
-  "/api/ai/remove-image-background",
-  upload.single("image"),
-  async (req, res) => {
-    try {
-      const image = req.file;
-
-      if (!image) {
-        return res.json({ success: false, message: "Image file is required" });
-      }
-
-      console.log("🖼️ Removing background from image...");
-
-      // Create form data for ClipDrop API
-      const FormData = (await import("form-data")).default;
-      const formData = new FormData();
-      formData.append("image_file", fs.createReadStream(image.path));
-
-      const response = await axios.post(
-        "https://clipdrop-api.co/remove-background/v1",
-        formData,
-        {
-          headers: {
-            "x-api-key": process.env.CLIPDROP_API_KEY,
-            ...formData.getHeaders(),
-          },
-          responseType: "arraybuffer",
-        }
-      );
-
-      // Convert to base64
-      const base64Image = `data:image/png;base64,${Buffer.from(
-        response.data,
-        "binary"
-      ).toString("base64")}`;
-
-      // Clean up uploaded file
-      fs.unlinkSync(image.path);
-
-      console.log("✅ Background removed successfully");
-      res.json({ success: true, content: base64Image });
-    } catch (error) {
-      console.error(
-        "❌ Background removal error:",
-        error.response?.data || error.message
-      );
-
-      // Clean up uploaded file if it exists
-      if (req.file) {
-        try {
-          fs.unlinkSync(req.file.path);
-        } catch {}
-      }
-
-      if (error.response?.status === 401) {
-        res.json({ success: false, message: "Invalid ClipDrop API key" });
-      } else if (error.response?.status === 429) {
-        res.json({
-          success: false,
-          message: "API rate limit exceeded. Please try again later.",
-        });
-      } else {
-        res.json({
-          success: false,
-          message: "Failed to remove background. Please try again.",
-        });
-      }
-    }
-  }
-);
-
-// Remove Object from Image Endpoint
-app.post(
-  "/api/ai/remove-image-object",
-  upload.single("image"),
-  async (req, res) => {
-    try {
-      const image = req.file;
-      const { object } = req.body;
-
-      if (!image || !object) {
-        return res.json({
-          success: false,
-          message: "Image file and object description are required",
-        });
-      }
-
-      console.log(`🎯 Removing ${object} from image...`);
-
-      // Create form data for ClipDrop API
-      const FormData = (await import("form-data")).default;
-      const formData = new FormData();
-      formData.append("image_file", fs.createReadStream(image.path));
-      formData.append("text", object);
-
-      const response = await axios.post(
-        "https://clipdrop-api.co/remove-text/v1",
-        formData,
-        {
-          headers: {
-            "x-api-key": process.env.CLIPDROP_API_KEY,
-            ...formData.getHeaders(),
-          },
-          responseType: "arraybuffer",
-        }
-      );
-
-      // Convert to base64
-      const base64Image = `data:image/png;base64,${Buffer.from(
-        response.data,
-        "binary"
-      ).toString("base64")}`;
-
-      // Clean up uploaded file
-      fs.unlinkSync(image.path);
-
-      console.log("✅ Object removed successfully");
-      res.json({ success: true, content: base64Image });
-    } catch (error) {
-      console.error(
-        "❌ Object removal error:",
-        error.response?.data || error.message
-      );
-
-      // Clean up uploaded file if it exists
-      if (req.file) {
-        try {
-          fs.unlinkSync(req.file.path);
-        } catch {}
-      }
-
-      if (error.response?.status === 401) {
-        res.json({ success: false, message: "Invalid ClipDrop API key" });
-      } else if (error.response?.status === 429) {
-        res.json({
-          success: false,
-          message: "API rate limit exceeded. Please try again later.",
-        });
-      } else {
-        res.json({
-          success: false,
-          message: "Failed to remove object. Please try again.",
-        });
-      }
-    }
-  }
-);
-
-// Resume Review Endpoint with PDF parsing
-app.post("/api/ai/resume-review", upload.single("resume"), async (req, res) => {
+// Remove Image Background Endpoint (Serverless compatible)
+app.post("/api/ai/remove-image-background", async (req, res) => {
   try {
-    const resume = req.file;
+    const { imageBase64 } = req.body;
 
-    if (!resume) {
-      return res.json({ success: false, message: "Resume file is required" });
-    }
-
-    if (resume.size > 5 * 1024 * 1024) {
+    if (!imageBase64) {
       return res.json({
         success: false,
-        message: "File size should be less than 5MB",
+        message: "Base64 image data is required",
       });
+    }
+
+    console.log("🖼️ Removing background from image...");
+
+    // For serverless deployment, this would need a different approach
+    // Currently returning a placeholder response
+    res.json({
+      success: false,
+      message:
+        "Background removal requires file upload - not available in serverless deployment",
+    });
+  } catch (error) {
+    console.error("❌ Background removal error:", error.message);
+    res.json({
+      success: false,
+      message: "Failed to remove background. Please try again.",
+    });
+  }
+});
+
+// Remove Object from Image Endpoint (Serverless compatible)
+app.post("/api/ai/remove-image-object", async (req, res) => {
+  try {
+    const { imageBase64, object } = req.body;
+
+    if (!imageBase64 || !object) {
+      return res.json({
+        success: false,
+        message: "Base64 image data and object description are required",
+      });
+    }
+
+    console.log(`🎯 Removing ${object} from image...`);
+
+    // For serverless deployment, this would need a different approach
+    res.json({
+      success: false,
+      message:
+        "Object removal requires file upload - not available in serverless deployment",
+    });
+  } catch (error) {
+    console.error("❌ Object removal error:", error.message);
+    res.json({
+      success: false,
+      message: "Failed to remove object. Please try again.",
+    });
+  }
+});
+
+// Resume Review Endpoint (Serverless compatible)
+app.post("/api/ai/resume-review", async (req, res) => {
+  try {
+    const { resumeText } = req.body;
+
+    if (!resumeText) {
+      return res.json({ success: false, message: "Resume text is required" });
     }
 
     console.log("📄 Reviewing resume...");
 
-    let resumeText = "";
-
-    // Parse PDF using the reliable createRequire approach
-    try {
-      // Read and parse the PDF file
-      const dataBuffer = fs.readFileSync(resume.path);
-      const pdfData = await pdfParse(dataBuffer);
-      resumeText = pdfData.text;
-
-      console.log("✅ PDF parsed successfully");
-      console.log("📝 Extracted text length:", resumeText.length, "characters");
-    } catch (pdfError) {
-      console.error("❌ PDF parsing failed:", pdfError.message);
-      // Provide a helpful message about the uploaded file
-      resumeText = `I received your resume file "${resume.originalname}" (${(
-        resume.size / 1024
-      ).toFixed(
-        1
-      )}KB). While I cannot parse the PDF content directly, I can provide you with comprehensive resume improvement guidance based on current industry standards and best practices.`;
-    }
-
-    const prompt = resumeText.includes("cannot parse the PDF content")
-      ? `As an expert HR professional and career coach, I've received a resume file but cannot parse its content directly. Please provide a comprehensive resume improvement guide with the following sections:
-
-    ${resumeText}
-
-    Please provide detailed guidance with these sections:
-
-    1. **Overall Assessment Guidelines** - How to evaluate resume effectiveness (scoring criteria out of 10)
-    2. **Content Best Practices** - What makes resume content compelling and relevant
-    3. **Common Strengths to Highlight** - Key elements that make resumes stand out
-    4. **Areas Often Needing Improvement** - Most common resume weaknesses to avoid
-    5. **Content Optimization** - How to improve descriptions, achievements, and skills presentation
-    6. **Formatting & Structure** - Professional layout and organization principles
-    7. **ATS Optimization** - Making resumes applicant tracking system friendly
-    8. **Action Items** - 5 specific steps anyone can take to improve their resume
-
-    Make this guidance actionable and specific, focusing on current industry standards and best practices.`
-      : `As an expert HR professional and career coach, provide a comprehensive review of this resume:
+    const prompt = `As an expert HR professional and career coach, provide a comprehensive review of this resume:
 
     RESUME CONTENT:
     ${resumeText}
@@ -504,21 +290,10 @@ app.post("/api/ai/resume-review", upload.single("resume"), async (req, res) => {
 
     const content = await callGeminiAPI(prompt, 2000);
 
-    // Clean up uploaded file
-    fs.unlinkSync(resume.path);
-
     console.log("✅ Resume review generated successfully");
     res.json({ success: true, content });
   } catch (error) {
     console.error("❌ Resume review error:", error.message);
-
-    // Clean up uploaded file if it exists
-    if (req.file) {
-      try {
-        fs.unlinkSync(req.file.path);
-      } catch {}
-    }
-
     res.json({
       success: false,
       message: `Failed to review resume: ${error.message}`,
@@ -628,28 +403,11 @@ app.get("/api/user/creations", async (req, res) => {
 
     console.log("👤 Fetching user creations for:", userId);
 
-    // For demo purposes, show ALL creations for any user (in production, filter by actual user)
-    const userCreations = creationsStorage.slice(0, 20); // Show all creations for demo
-
-    // Also add the user's specific creations if any exist
-    const specificUserCreations = creationsStorage.filter(
-      (c) => c.user_id === userId
-    );
-    console.log(
-      `🔍 User ${userId} has ${specificUserCreations.length} specific creations`
-    );
+    // Return dummy data for demo
+    const userCreations = getDummyCreations();
 
     console.log(
       `📊 Found ${userCreations.length} creations for user ${userId}`
-    );
-    console.log(`📦 Total storage count: ${creationsStorage.length}`);
-    console.log(
-      "Available creations:",
-      creationsStorage.map((c) => ({
-        id: c.id,
-        user_id: c.user_id,
-        prompt: c.prompt.substring(0, 50),
-      }))
     );
 
     res.json({ success: true, creations: userCreations });
@@ -661,17 +419,23 @@ app.get("/api/user/creations", async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📍 API Base URL: http://localhost:${PORT}`);
-  console.log(
-    `🔑 Gemini API Key: ${
-      process.env.GEMINI_API_KEY ? "Configured ✅" : "Missing ❌"
-    }`
-  );
-  console.log(
-    `🔑 ClipDrop API Key: ${
-      process.env.CLIPDROP_API_KEY ? "Configured ✅" : "Missing ❌"
-    }`
-  );
-});
+// For local development
+if (process.env.NODE_ENV !== "production") {
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`📍 API Base URL: http://localhost:${PORT}`);
+    console.log(
+      `🔑 Gemini API Key: ${
+        process.env.GEMINI_API_KEY ? "Configured ✅" : "Missing ❌"
+      }`
+    );
+    console.log(
+      `🔑 ClipDrop API Key: ${
+        process.env.CLIPDROP_API_KEY ? "Configured ✅" : "Missing ❌"
+      }`
+    );
+  });
+}
+
+// Export for Vercel
+export default app;
