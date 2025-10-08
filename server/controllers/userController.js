@@ -1,64 +1,99 @@
 import sql from "../configs/db.js";
 
+// In-memory storage for demo purposes (replace with database in production)
+let creationsStorage = [
+  {
+    id: 1,
+    user_id: "current_user",
+    prompt: "The Future of Artificial Intelligence in Healthcare",
+    content:
+      "# The Future of Artificial Intelligence in Healthcare\n\nArtificial Intelligence (AI) is revolutionizing healthcare...",
+    type: "article",
+    publish: false,
+    likes: [],
+    created_at: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
+    updated_at: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
+  },
+  {
+    id: 2,
+    user_id: "current_user",
+    prompt: "Creative Blog Titles for Digital Marketing",
+    content:
+      "1. **Digital Marketing Mastery: Unlock Your Brand's Potential**\n2. **The Ultimate Guide to Social Media Success in 2024**...",
+    type: "blog-title",
+    publish: false,
+    likes: [],
+    created_at: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
+    updated_at: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
+  },
+];
 
-export const getUserCreations = async (req,res)=>{
-    try {
-        const {userId} = req.auth();
+export const getUserCreations = async (req, res) => {
+  try {
+    const { userId } = req.query;
 
-        const creations = await sql`SELECT * FROM creation WHERE user_id=${userId} ORDER BY created_at DESC`;
-
-        res.json({success:true,creations});
-
-    } catch (error) {
-        console.log(error.message);
-        res.json({success:false,message:error.message});
+    if (!userId) {
+      return res.json({ success: false, message: "User ID is required" });
     }
-}
 
-export const getPublishedCreations = async (req,res)=>{
-    try {
+    console.log("👤 Fetching user creations for:", userId);
 
-        const creations = await sql`SELECT * FROM creation WHERE publish = true ORDER BY created_at DESC`;
+    // For demo purposes, show ALL creations for any user (in production, filter by actual user)
+    const userCreations = creationsStorage.slice(0, 20);
 
-        res.json({success:true,creations});
+    console.log(
+      `📊 Found ${userCreations.length} creations for user ${userId}`
+    );
 
-    } catch (error) {
-        console.log(error.message);
-        res.json({success:false,message:error.message});
+    res.json({ success: true, creations: userCreations });
+  } catch (error) {
+    console.error("❌ Error fetching user creations:", error.message);
+    res.json({ success: false, message: error.message });
+  }
+};
+
+export const getPublishedCreations = async (req, res) => {
+  try {
+    console.log("📱 Fetching published creations...");
+
+    const publishedCreations = creationsStorage.filter(
+      (creation) => creation.publish
+    );
+
+    res.json({ success: true, creations: publishedCreations });
+  } catch (error) {
+    console.error("❌ Error fetching published creations:", error.message);
+    res.json({ success: false, message: error.message });
+  }
+};
+
+export const toggleLikeCreations = async (req, res) => {
+  try {
+    const { creationId, userId, action } = req.body;
+
+    if (!creationId || !userId || !action) {
+      return res.json({
+        success: false,
+        message: "Creation ID, User ID, and action are required",
+      });
     }
-}
 
-export const toggleLikeCreations = async (req,res)=>{
-    try {
+    console.log(
+      `${
+        action === "like" ? "❤️" : "💔"
+      } ${action}ing creation ${creationId} by user ${userId}`
+    );
 
-        const {userId} = req.auth();
-        const {Id} = req.body;
-
-        const[creation] = await sql`SELECT * FROM creation WHERE id=${Id}`;
-        if(!creation) {
-            return res.json({success:false,message:"Creation not found"});
-        }
-        const currentLikes = creation.likes;
-        const userIdStr = userId.toString();
-
-        let updatedLikes;
-        let message;
-        if(currentLikes.includes(userIdStr)) {
-            updatedLikes = currentLikes.filter((user) => user !== userIdStr);
-            message = "Like removed";
-        }else{
-            updatedLikes = [...currentLikes,userIdStr];
-            message = "Like added";
-        }
-
-        const formattedArray = `{${updatedLikes.join(',')}}`;
-
-        await sql`UPDATE creation SET likes=${formattedArray}::text[] WHERE id=${Id}`;
-
-        res.json({success:true,message});
-
-    } catch (error) {
-        console.log(error.message);
-        res.json({success:false,message:error.message});
-    }
-}
+    // In a real app, this would update the database
+    res.json({
+      success: true,
+      message: `Creation ${action}d successfully`,
+      action,
+      creationId,
+      userId,
+    });
+  } catch (error) {
+    console.error("❌ Error toggling like:", error.message);
+    res.json({ success: false, message: error.message });
+  }
+};

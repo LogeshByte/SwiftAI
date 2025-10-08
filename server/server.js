@@ -4,6 +4,11 @@ import "dotenv/config";
 import axios from "axios";
 import multer from "multer";
 import fs from "fs";
+import { createRequire } from "module";
+
+// Create require function for CommonJS modules
+const require = createRequire(import.meta.url);
+const pdfParse = require("pdf-parse");
 
 const app = express();
 
@@ -423,7 +428,7 @@ app.post(
   }
 );
 
-// Resume Review Endpoint (simplified without PDF parsing for now)
+// Resume Review Endpoint with PDF parsing
 app.post("/api/ai/resume-review", upload.single("resume"), async (req, res) => {
   try {
     const resume = req.file;
@@ -441,18 +446,61 @@ app.post("/api/ai/resume-review", upload.single("resume"), async (req, res) => {
 
     console.log("📄 Reviewing resume...");
 
-    // For now, provide a generic resume review since PDF parsing is complex
-    const prompt = `As an expert HR professional and career coach, provide a comprehensive resume review template with the following sections:
+    let resumeText = "";
 
-    1. **Overall Assessment** - General guidelines for rating resumes out of 10
-    2. **Common Strengths** - What typically works well in resumes
-    3. **Areas for Improvement** - Common issues that need attention
-    4. **Content Suggestions** - What to generally add, remove, or modify
-    5. **Formatting & Structure** - Layout and organization best practices
-    6. **ATS Optimization** - How to make resumes more ATS-friendly
-    7. **Action Items** - 5 specific steps to improve any resume
+    // Parse PDF using the reliable createRequire approach
+    try {
+      // Read and parse the PDF file
+      const dataBuffer = fs.readFileSync(resume.path);
+      const pdfData = await pdfParse(dataBuffer);
+      resumeText = pdfData.text;
 
-    Make the feedback constructive, specific, and actionable for general resume improvement.`;
+      console.log("✅ PDF parsed successfully");
+      console.log("📝 Extracted text length:", resumeText.length, "characters");
+    } catch (pdfError) {
+      console.error("❌ PDF parsing failed:", pdfError.message);
+      // Provide a helpful message about the uploaded file
+      resumeText = `I received your resume file "${resume.originalname}" (${(
+        resume.size / 1024
+      ).toFixed(
+        1
+      )}KB). While I cannot parse the PDF content directly, I can provide you with comprehensive resume improvement guidance based on current industry standards and best practices.`;
+    }
+
+    const prompt = resumeText.includes("cannot parse the PDF content")
+      ? `As an expert HR professional and career coach, I've received a resume file but cannot parse its content directly. Please provide a comprehensive resume improvement guide with the following sections:
+
+    ${resumeText}
+
+    Please provide detailed guidance with these sections:
+
+    1. **Overall Assessment Guidelines** - How to evaluate resume effectiveness (scoring criteria out of 10)
+    2. **Content Best Practices** - What makes resume content compelling and relevant
+    3. **Common Strengths to Highlight** - Key elements that make resumes stand out
+    4. **Areas Often Needing Improvement** - Most common resume weaknesses to avoid
+    5. **Content Optimization** - How to improve descriptions, achievements, and skills presentation
+    6. **Formatting & Structure** - Professional layout and organization principles
+    7. **ATS Optimization** - Making resumes applicant tracking system friendly
+    8. **Action Items** - 5 specific steps anyone can take to improve their resume
+
+    Make this guidance actionable and specific, focusing on current industry standards and best practices.`
+      : `As an expert HR professional and career coach, provide a comprehensive review of this resume:
+
+    RESUME CONTENT:
+    ${resumeText}
+
+    Please provide a detailed analysis with the following sections:
+
+    1. **Overall Assessment** - Rate this resume out of 10 and provide a brief summary of strengths and weaknesses
+    2. **Content Analysis** - Evaluate the actual content, experience, and skills presented
+    3. **Strengths** - What works well in this specific resume
+    4. **Areas for Improvement** - Specific issues that need attention in this resume
+    5. **Content Suggestions** - What to add, remove, or modify based on the actual content
+    6. **Formatting & Structure** - Layout and organization feedback for this resume
+    7. **ATS Optimization** - Specific recommendations to make this resume more ATS-friendly
+    8. **Action Items** - 5 specific, actionable steps to improve this particular resume
+
+    Make your feedback constructive, specific to this resume's content, and actionable.`;
 
     const content = await callGeminiAPI(prompt, 2000);
 

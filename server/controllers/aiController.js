@@ -3,7 +3,11 @@ import sql from "../configs/db.js";
 import { clerkClient } from "@clerk/express";
 import { v2 as cloudinary } from "cloudinary";
 import fs from "fs";
-import * as pdf from "pdf-parse";
+import { createRequire } from "module";
+
+// Create require function for CommonJS modules
+const require = createRequire(import.meta.url);
+const pdfParse = require("pdf-parse");
 
 // Configure Cloudinary
 cloudinary.config({
@@ -18,20 +22,14 @@ async function callGeminiAPI(prompt, maxTokens = 1000) {
     const response = await axios.post(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
       {
-        contents: [
-          {
-            parts: [{ text: prompt }],
-          },
-        ],
+        contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
           maxOutputTokens: maxTokens,
           temperature: 0.7,
         },
       },
       {
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
       }
     );
 
@@ -41,12 +39,20 @@ async function callGeminiAPI(prompt, maxTokens = 1000) {
       throw new Error("No content generated from Gemini API");
     }
   } catch (error) {
-    if (error.response?.data?.error?.code === 429) {
-      throw new Error(
-        "API quota exceeded. Please wait and try again or upgrade your plan."
-      );
-    }
+    console.error("Gemini API Error:", error.response?.data || error.message);
     throw new Error(error.response?.data?.error?.message || error.message);
+  }
+}
+
+// Helper function to extract text from PDF
+async function extractTextFromPDF(filePath) {
+  try {
+    const dataBuffer = fs.readFileSync(filePath);
+    const pdfData = await pdfParse(dataBuffer);
+    return pdfData.text;
+  } catch (error) {
+    console.error("❌ PDF parsing failed:", error.message);
+    throw error;
   }
 }
 
@@ -331,13 +337,42 @@ export const resumeReview = async (req, res) => {
 
     console.log("📄 Reviewing resume...");
 
-    const dataBuffer = fs.readFileSync(resume.path);
-    const pdfData = await pdf(dataBuffer);
+    let resumeText = "";
 
-    const prompt = `As an expert HR professional and career coach, provide a comprehensive review of this resume:
+    try {
+      resumeText = await extractTextFromPDF(resume.path);
+      console.log("✅ PDF parsed successfully");
+      console.log("📝 Extracted text length:", resumeText.length, "characters");
+    } catch (pdfError) {
+      console.error("❌ PDF parsing failed:", pdfError.message);
+      resumeText = `I received your resume file "${resume.originalname}" (${(
+        resume.size / 1024
+      ).toFixed(
+        1
+      )}KB). While I cannot parse the PDF content directly, I can provide you with comprehensive resume improvement guidance based on current industry standards and best practices.`;
+    }
+
+    const prompt = resumeText.includes("cannot parse the PDF content")
+      ? `As an expert HR professional and career coach, I've received a resume file but cannot parse its content directly. Please provide a comprehensive resume improvement guide with the following sections:
+
+    ${resumeText}
+
+    Please provide detailed guidance with these sections:
+
+    1. **Overall Assessment Guidelines** - How to evaluate resume effectiveness (scoring criteria out of 10)
+    2. **Content Best Practices** - What makes resume content compelling and relevant
+    3. **Common Strengths to Highlight** - Key elements that make resumes stand out
+    4. **Areas Often Needing Improvement** - Most common resume weaknesses to avoid
+    5. **Content Optimization** - How to improve descriptions, achievements, and skills presentation
+    6. **Formatting & Structure** - Professional layout and organization principles
+    7. **ATS Optimization** - Making resumes applicant tracking system friendly
+    8. **Action Items** - 5 specific steps anyone can take to improve their resume
+
+    Make this guidance actionable and specific, focusing on current industry standards and best practices.`
+      : `As an expert HR professional and career coach, provide a comprehensive review of this resume:
 
     RESUME CONTENT:
-    ${pdfData.text}
+    ${resumeText}
 
     Please provide:
     1. **Overall Assessment** - Rate the resume out of 10 and give a brief summary
