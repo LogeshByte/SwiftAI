@@ -1,5 +1,5 @@
 import { Route, Routes } from "react-router-dom";
-import Home from "./pages/home.jsx";
+import Home from "./pages/Home.jsx";
 import Layout from "./pages/Layout.jsx";
 import Dashboard from "./pages/Dashboard";
 import WriteArticle from "./pages/WriteArticle";
@@ -11,14 +11,12 @@ import Community from "./pages/Community.jsx";
 import RemoveObject from "./pages/RemoveObject.jsx";
 import { useAuth } from "@clerk/clerk-react";
 import { useEffect } from "react";
-import {Toaster} from "react-hot-toast";
-
+import { Toaster } from "react-hot-toast";
 
 const App = () => {
-
   return (
     <div>
-      <Toaster/>
+      <Toaster />
       <Routes>
         <Route path="/" element={<Home />} />
 
